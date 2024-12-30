@@ -2,34 +2,48 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"kvstorepb"
 	"log"
 	"net"
-
-	pb "KeyForge/grpc-gateway/pb"
 
 	"google.golang.org/grpc"
 )
 
 type server struct {
-	pb.UnimplementedGreeterServer
+	kvstorepb.UnimplementedKeyValueStoreServer
+	store map[string]string
 }
 
-func (s *server) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloResponse, error) {
-	log.Printf("Received: %v", req.GetName())
-	return &pb.HelloResponse{Message: "Hello " + req.GetName()}, nil
+func (s *server) Set(ctx context.Context, kv *kvstorepb.KeyValue) (*kvstorepb.Response, error) {
+	s.store[kv.Key] = kv.Value
+	return &kvstorepb.Response{Message: "Key-Value set successfully!"}, nil
+}
+
+func (s *server) Get(ctx context.Context, key *kvstorepb.Key) (*kvstorepb.Response, error) {
+	value, exists := s.store[key.Key]
+	if !exists {
+		return &kvstorepb.Response{Message: "Key not found"}, nil
+	}
+	return &kvstorepb.Response{Message: "Success", Value: value}, nil
+}
+
+func startServer() {
+	// Start gRPC server
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("Failed to listen on port 50051: %v", err)
+	}
+
+	grpcServer := grpc.NewServer()
+	kvstorepb.RegisterKeyValueStoreServer(grpcServer, &server{store: make(map[string]string)})
+
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("Failed to serve gRPC: %v", err)
+	}
 }
 
 func main() {
-	lis, err := net.Listen("tcp", ":50051")
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-
-	s := grpc.NewServer()
-	pb.RegisterGreeterServer(s, &server{})
-
-	log.Println("Server is listening on port 50051...")
-	if err := s.Serve(lis); err != nil {
-		log.Fatalf("failed to serve: %v", err)
-	}
+	fmt.Println("Starting gRPC server...")
+	startServer()
 }
