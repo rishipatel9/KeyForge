@@ -1,49 +1,48 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"kvstorepb"
+	"KeyForge/db"
+	"KeyForge/web"
+	"flag"
+	"io/ioutil"
 	"log"
-	"net"
-
-	"google.golang.org/grpc"
+	"net/http"
 )
 
-type server struct {
-	kvstorepb.UnimplementedKeyValueStoreServer
-	store map[string]string
-}
+var (
+	dbLocation  = flag.String("db-location", "", "Path to boltDB database")
+	httpAddress = flag.String("http-address", "127.0.0.1:5000", "Http port and host")
+	configFile  = flag.String("config-file", "sharding.toml", "Config file for static sharding")
+)
 
-func (s *server) Set(ctx context.Context, kv *kvstorepb.KeyValue) (*kvstorepb.Response, error) {
-	s.store[kv.Key] = kv.Value
-	return &kvstorepb.Response{Message: "Key-Value set successfully!"}, nil
-}
+func ParseFlag() {
+	flag.Parse()
 
-func (s *server) Get(ctx context.Context, key *kvstorepb.Key) (*kvstorepb.Response, error) {
-	value, exists := s.store[key.Key]
-	if !exists {
-		return &kvstorepb.Response{Message: "Key not found"}, nil
-	}
-	return &kvstorepb.Response{Message: "Success", Value: value}, nil
-}
-
-func startServer() {
-	// Start gRPC server
-	lis, err := net.Listen("tcp", ":50051")
-	if err != nil {
-		log.Fatalf("Failed to listen on port 50051: %v", err)
-	}
-
-	grpcServer := grpc.NewServer()
-	kvstorepb.RegisterKeyValueStoreServer(grpcServer, &server{store: make(map[string]string)})
-
-	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("Failed to serve gRPC: %v", err)
+	if *dbLocation == "" {
+		log.Fatal("Must Provide DB Location")
 	}
 }
 
 func main() {
-	fmt.Println("Starting gRPC server...")
-	startServer()
+	ParseFlag()
+
+	configConents, err := ioutil.ReadFile(*configFile)
+	if err != nil {
+		log.Fatalf("Read File (%q) : %w", *configFile, err)
+	}
+
+	DB, close, err := db.NewDatabase(*dbLocation)
+	if err != nil {
+		log.Fatalf("NewDatabase(%q): %v", *dbLocation, err)
+	}
+	defer close()
+
+	srv := web.NewServer(DB)
+
+	http.HandleFunc("/set", srv.SetHandler)
+
+	http.HandleFunc("/get", srv.GetHandler)
+
+	log.Fatal(http.ListenAndServe(*httpAddress, nil))
+
 }
