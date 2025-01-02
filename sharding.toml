@@ -1,0 +1,15 @@
+[[shard]]
+name="shard1"
+idx=0
+address="localhost:5000"
+
+[[shard]]
+name="shard2"
+idx=1
+address="localhost:5001"
+
+[[shard]]
+name="shard3"
+idx=2
+address="localhost:5002"
+
