@@ -7,8 +7,6 @@ import (
 	"flag"
 	"log"
 	"net/http"
-
-	"github.com/BurntSushi/toml"
 )
 
 var (
@@ -32,10 +30,10 @@ func ParseFlag() {
 func main() {
 	ParseFlag()
 
-	var c config.Config
+	c, err := config.ParseFile(*configFile)
 
-	if _, err := toml.DecodeFile(*configFile, &c); err != nil {
-		log.Fatalf("toml.DecodeFile(%q) : %v ", *configFile, err)
+	if err != nil {
+		log.Fatalf("Error parsing config %q: %v", *configFile, err)
 	}
 
 	var shardCount int
