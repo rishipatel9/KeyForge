@@ -27,6 +27,7 @@ func NewServer(db *db.Database, shardIdx int, shardCount int, addrs map[int]stri
 func (s *Server) GetShard(key string) int {
 	h := fnv.New64a()
 	h.Write([]byte(key))
+	fmt.Println(((h.Sum64()) % uint64(s.shardCount)))
 	return int((h.Sum64()) % uint64(s.shardCount))
 }
 
