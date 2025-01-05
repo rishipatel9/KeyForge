@@ -46,7 +46,7 @@ func createShardServer(t *testing.T, idx int, addrs map[int]string) (*db.Databas
 		CurrIdx: idx,
 	}
 
-	s := web.NewServer(db, cfg.CurrIdx, cfg.Count, cfg.Addrs)
+	s := web.NewServer(db, cfg)
 	return db, s
 }
 

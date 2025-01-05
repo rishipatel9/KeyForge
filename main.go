@@ -16,55 +16,32 @@ var (
 	shard       = flag.String("shard", "", "Name of shard for data")
 )
 
-func ParseFlag() {
+func main() {
 	flag.Parse()
 
-	if *dbLocation == "" {
-		log.Fatal("Must Provide DB Location")
-	}
-	if *shard == "" {
-		log.Fatal("Must Provide Shard")
-	}
-}
-
-func main() {
-	ParseFlag()
-
 	c, err := config.ParseFile(*configFile)
-
 	if err != nil {
 		log.Fatalf("Error parsing config %q: %v", *configFile, err)
 	}
 
-	var shardCount int
-	var shardIdx int = -1
-	var shardAddrs = make(map[int]string)
-	for _, s := range c.Shard {
-		shardAddrs[s.Idx] = s.Address
-		if s.Idx+1 > shardCount {
-			shardCount = s.Idx + 1
-		}
-		if s.Name == *shard {
-			shardIdx = s.Idx
-		}
+	shards, err := config.ParseShards(c.Shard, *shard)
+	if err != nil {
+		log.Fatalf("Error parsing shards config: %v", err)
 	}
 
-	if shardIdx < 0 {
-		log.Fatal("Shard not found")
-	}
+	log.Printf("Shard count is %d, current shard: %d", shards.Count, shards.CurrIdx)
 
-	log.Printf("Shard Count is %d, current Shard %d", shardCount, shardIdx)
 	DB, close, err := db.NewDatabase(*dbLocation)
 	if err != nil {
-		log.Fatalf("NewDatabase(%q): %v", *dbLocation, err)
+		log.Fatalf("Error creating %q: %v", *dbLocation, err)
 	}
 	defer close()
 
-	srv := web.NewServer(DB, shardIdx, shardCount, shardAddrs)
+	srv := web.NewServer(DB, shards)
 
 	http.HandleFunc("/set", srv.SetHandler)
-
 	http.HandleFunc("/get", srv.GetHandler)
+	http.HandleFunc("/purge", srv.DeleteExtraKeysHandler)
 
 	log.Fatal(http.ListenAndServe(*httpAddress, nil))
 

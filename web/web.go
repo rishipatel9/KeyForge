@@ -1,74 +1,72 @@
 package web
 
 import (
+	"KeyForge/config"
 	"KeyForge/db"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"net/http"
 )
 
 type Server struct {
-	db         *db.Database
-	shardIdx   int
-	shardCount int
-	shardAddrs map[int]string
+	db     *db.Database
+	shards *config.Shards
 }
 
-func NewServer(db *db.Database, shardIdx int, shardCount int, addrs map[int]string) *Server {
+func NewServer(db *db.Database, s *config.Shards) *Server {
 	return &Server{
-		db:         db,
-		shardIdx:   shardIdx,
-		shardCount: shardCount,
-		shardAddrs: addrs,
+		db:     db,
+		shards: s,
 	}
 }
 
-func (s *Server) GetShard(key string) int {
-	h := fnv.New64a()
-	h.Write([]byte(key))
-	fmt.Println(((h.Sum64()) % uint64(s.shardCount)))
-	return int((h.Sum64()) % uint64(s.shardCount))
-}
+func (s *Server) redirect(shard int, w http.ResponseWriter, r *http.Request) {
+	url := "http://" + s.shards.Addrs[shard] + r.RequestURI
+	fmt.Fprintf(w, "redirecting from shard %d to shard %d (%q)\n", s.shards.CurrIdx, shard, url)
 
-func (s *Server) Redirect(w http.ResponseWriter, r *http.Request, shard int) {
-	url := "http://" + s.shardAddrs[shard] + r.RequestURI
-	fmt.Fprintf(w, "redirecting from shard %d to shard %d (%q)\n", s.shardIdx, shard, url)
-	res, err := http.Get(url)
+	resp, err := http.Get(url)
 	if err != nil {
 		w.WriteHeader(500)
-		fmt.Fprintf(w, "error redirecting the request : %v", err)
+		fmt.Fprintf(w, "Error redirecting the request: %v", err)
 		return
 	}
-	defer res.Body.Close()
-	io.Copy(w, res.Body)
+	defer resp.Body.Close()
+
+	io.Copy(w, resp.Body)
 }
 
-// Get Handler
 func (s *Server) GetHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	key := r.Form.Get("key")
-	shard := s.GetShard(key)
 
-	if shard != s.shardIdx {
-		s.Redirect(w, r, shard)
+	shard := s.shards.Index(key)
+	value, err := s.db.GetKey(key)
+
+	if shard != s.shards.CurrIdx {
+		s.redirect(shard, w, r)
+		return
 	}
 
-	ans, err := s.db.GetKey(key)
-	fmt.Fprintf(w, "Value : %q, error : %v, shard : %d , addrs : %q, current shardIdx : %d", ans, err, shard, s.shardAddrs[shard], s.shardIdx)
+	fmt.Fprintf(w, "Shard = %d, current shard = %d, addr = %q, Value = %q, error = %v", shard, s.shards.CurrIdx, s.shards.Addrs[shard], value, err)
 }
 
-// Set Handler
 func (s *Server) SetHandler(w http.ResponseWriter, r *http.Request) {
 	r.ParseForm()
 	key := r.Form.Get("key")
 	value := r.Form.Get("value")
 
-	shard := s.GetShard(key)
-
-	if shard != s.shardIdx {
-		s.Redirect(w, r, shard)
+	shard := s.shards.Index(key)
+	if shard != s.shards.CurrIdx {
+		s.redirect(shard, w, r)
+		return
 	}
+
 	err := s.db.SetKey(key, []byte(value))
-	fmt.Fprintf(w, "error: %v, shard : %d, shardIdx : %d", err, shard, s.shardIdx)
+	fmt.Fprintf(w, "Error = %v, shardIdx = %d, current shard = %d", err, shard, s.shards.CurrIdx)
+}
+
+func (s *Server) DeleteExtraKeysHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Error = %v", s.db.DeleteExtraKeys(func(key string) bool {
+		return s.shards.Index(key) != s.shards.CurrIdx
+	}))
 }
